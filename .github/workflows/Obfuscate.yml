@@ -2,9 +2,6 @@ name: Build Obfuscate BPB Panel
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
   schedule:
     - cron: "0 1 * * *"
 
@@ -20,6 +17,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+          ref: main
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -32,29 +31,23 @@ jobs:
           sudo apt-get install -y jq
           npm install -g javascript-obfuscator
 
-      - name: Download BPB worker
-        env:
-          GH_API: https://api.github.com/repos/bia-pain-bache/BPB-Worker-Panel/releases/latest
+      - name: Download and Obfuscate BPB worker
         run: |
-          asset_url=$(curl -sL "$GH_API" | jq -r '.assets[] | select(.name | test("unobfuscated-worker\\.js$|worker\\.js$")) | .browser_download_url' | head -1)
+          asset_url=$(curl -sL "https://api.github.com/repos/bia-pain-bache/BPB-Worker-Panel/releases/latest" | jq -r '.assets[] | select(.name | test("unobfuscated-worker\\.js$|worker\\.js$")) | .browser_download_url' | head -1)
           if [ -z "$asset_url" ] || [ "$asset_url" = "null" ]; then
-            echo "No worker file found in latest Release" >&2
+            echo "No worker file found" >&2
             exit 1
           fi
           echo "Downloading: $asset_url"
           curl -L "$asset_url" -o origin.js
+          
+          echo "Obfuscating..."
+          javascript-obfuscator origin.js --output _worker.js --compact true
 
-      - name: Obfuscate with basic settings
+      - name: Force commit and push
         run: |
-          javascript-obfuscator origin.js --output _worker.js \
-            --compact true \
-            --identifier-names-generator hexadecimal
-
-      - name: Commit changes
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          branch: main
-          commit_message: ':arrow_up: update latest bpb panel'
-          file_pattern: |
-            origin.js
-            _worker.js
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add origin.js _worker.js
+          git commit -m ":arrow_up: update latest bpb panel" || echo "No changes to commit"
+          git push --force origin main
